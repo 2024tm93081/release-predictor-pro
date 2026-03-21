@@ -10,7 +10,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Package, Timer, Shield, Brain, FileBarChart } from "lucide-react";
+import { LayoutDashboard, Package, Timer, Shield, Brain, BarChart3, Lightbulb, Info } from "lucide-react";
 
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -18,7 +18,9 @@ const items = [
   { title: "Sprints", url: "/sprints", icon: Timer },
   { title: "Quality", url: "/quality", icon: Shield },
   { title: "Predict", url: "/predict", icon: Brain },
-  { title: "Reports", url: "/reports", icon: FileBarChart },
+  { title: "Model Evaluation", url: "/model-evaluation", icon: BarChart3 },
+  { title: "Feature Insights", url: "/feature-insights", icon: Lightbulb },
+  { title: "About", url: "/about", icon: Info },
 ];
 
 export function AppSidebar() {

@@ -36,13 +36,16 @@
     --success: 160 100% 45%;
     --success-foreground: 216 28% 7%;
 
+    --info: 199 89% 60%;
+    --info-foreground: 216 28% 7%;
+
     --border: 225 25% 20%;
     --input: 225 25% 16%;
     --ring: 160 100% 45%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 225 32% 10%;
+    --sidebar-background: 228 40% 8%;
     --sidebar-foreground: 220 15% 65%;
     --sidebar-primary: 160 100% 45%;
     --sidebar-primary-foreground: 216 28% 7%;
@@ -86,6 +89,10 @@
 
   .glow-purple {
     box-shadow: 0 0 20px hsl(263 86% 76% / 0.15);
+  }
+
+  .glow-blue {
+    box-shadow: 0 0 20px hsl(199 89% 60% / 0.15);
   }
 
   .gradient-card {

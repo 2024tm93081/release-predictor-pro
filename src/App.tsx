@@ -9,7 +9,9 @@ import Releases from "./pages/Releases";
 import Sprints from "./pages/Sprints";
 import Quality from "./pages/Quality";
 import Predict from "./pages/Predict";
-import Reports from "./pages/Reports";
+import ModelEvaluation from "./pages/ModelEvaluation";
+import FeatureInsights from "./pages/FeatureInsights";
+import About from "./pages/About";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,7 +29,9 @@ const App = () => (
             <Route path="/sprints" element={<Sprints />} />
             <Route path="/quality" element={<Quality />} />
             <Route path="/predict" element={<Predict />} />
-            <Route path="/reports" element={<Reports />} />
+            <Route path="/model-evaluation" element={<ModelEvaluation />} />
+            <Route path="/feature-insights" element={<FeatureInsights />} />
+            <Route path="/about" element={<About />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
