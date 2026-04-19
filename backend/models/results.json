@@ -1,0 +1,95 @@
+{
+  "features": [
+    "defect_density",
+    "test_coverage",
+    "spillover_ratio",
+    "code_churn",
+    "velocity_variance",
+    "open_critical_bugs",
+    "regression_pass_rate",
+    "sprint_goal_met",
+    "effort_ratio",
+    "days_since_incident"
+  ],
+  "labels": [
+    "Ready",
+    "At Risk",
+    "Not Ready"
+  ],
+  "random_forest": {
+    "metrics": {
+      "accuracy": 1.0,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "cv_f1": 0.8502
+    },
+    "feature_importance": {
+      "defect_density": 0.1074,
+      "test_coverage": 0.1903,
+      "spillover_ratio": 0.1947,
+      "code_churn": 0.1062,
+      "velocity_variance": 0.0592,
+      "open_critical_bugs": 0.0619,
+      "regression_pass_rate": 0.0957,
+      "sprint_goal_met": 0.0302,
+      "effort_ratio": 0.0579,
+      "days_since_incident": 0.0965
+    },
+    "confusion_matrix": [
+      [
+        3,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ]
+  },
+  "catboost": {
+    "metrics": {
+      "accuracy": 1.0,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "cv_f1": 0.9073
+    },
+    "feature_importance": {
+      "defect_density": 0.1813,
+      "test_coverage": 0.2269,
+      "spillover_ratio": 0.1971,
+      "code_churn": 0.061,
+      "velocity_variance": 0.0179,
+      "open_critical_bugs": 0.0634,
+      "regression_pass_rate": 0.0531,
+      "sprint_goal_met": 0.1034,
+      "effort_ratio": 0.0249,
+      "days_since_incident": 0.0709
+    },
+    "confusion_matrix": [
+      [
+        3,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ]
+  }
+}

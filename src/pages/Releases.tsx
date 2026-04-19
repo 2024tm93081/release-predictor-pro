@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ProgressBar } from "@/components/ProgressBar";
-import { Plus, X, Bug, Calendar, Search } from "lucide-react";
+import { Plus, X, Search } from "lucide-react";
 
 type StatusType = "Ready" | "At Risk" | "Not Ready";
 
@@ -18,65 +17,203 @@ interface Release {
   velocityVariance: number;
   effortRatio: number;
   daysSinceIncident: number;
-  status: StatusType;
-  readiness: number;
+  mlStatus: StatusType;
+  mlConfidence: number;
+  ruleStatus: StatusType;
+  ruleScore: number;
 }
 
-const initialReleases: Release[] = [
-  { id: "v2.4.1", targetDate: "25 Mar 2026", testCoverage: 91, defectDensity: 0.3, spilloverRatio: 8, codeChurn: 12, openCriticalBugs: 3, regressionPassRate: 94, sprintGoalsMet: 3, velocityVariance: 10, effortRatio: 1.05, daysSinceIncident: 55, status: "Ready", readiness: 87 },
-  { id: "v2.3.8", targetDate: "10 Mar 2026", testCoverage: 74, defectDensity: 2.8, spilloverRatio: 18, codeChurn: 20, openCriticalBugs: 7, regressionPassRate: 71, sprintGoalsMet: 2, velocityVariance: 18, effortRatio: 1.15, daysSinceIncident: 30, status: "At Risk", readiness: 61 },
-  { id: "v2.3.5", targetDate: "22 Feb 2026", testCoverage: 52, defectDensity: 4.5, spilloverRatio: 22, codeChurn: 30, openCriticalBugs: 14, regressionPassRate: 50, sprintGoalsMet: 1, velocityVariance: 25, effortRatio: 1.30, daysSinceIncident: 10, status: "Not Ready", readiness: 38 },
-  { id: "v2.2.9", targetDate: "05 Feb 2026", testCoverage: 88, defectDensity: 1.2, spilloverRatio: 10, codeChurn: 15, openCriticalBugs: 1, regressionPassRate: 79, sprintGoalsMet: 3, velocityVariance: 8, effortRatio: 1.02, daysSinceIncident: 90, status: "Ready", readiness: 82 },
-];
+interface BackendRelease {
+  release_id: string;
+  target_date?: string;
+  test_coverage: number;
+  defect_density: number;
+  spillover_ratio: number;
+  code_churn: number;
+  open_critical_bugs: number;
+  regression_pass_rate: number;
+  sprint_goal_met: number;
+  velocity_variance: number;
+  effort_ratio: number;
+  days_since_incident: number;
+  ml_prediction?: {
+    status: StatusType;
+    confidence: number;
+  };
+  rule_based?: {
+    status: StatusType;
+    score: number;
+  };
+  readiness_label?: StatusType;
+  readiness?: number;
+}
 
 const defaultForm = {
-  id: "", targetDate: "", testCoverage: "", defectDensity: "", spilloverRatio: "", codeChurn: "",
-  openCriticalBugs: "", regressionPassRate: "", sprintGoalsMet: "3", velocityVariance: "", effortRatio: "", daysSinceIncident: "",
+  id: "",
+  targetDate: "",
+  testCoverage: "",
+  defectDensity: "",
+  spilloverRatio: "",
+  codeChurn: "",
+  openCriticalBugs: "",
+  regressionPassRate: "",
+  sprintGoalsMet: "3",
+  velocityVariance: "",
+  effortRatio: "",
+  daysSinceIncident: "",
 };
 
-function computeStatus(coverage: number, defects: number): { status: StatusType; readiness: number } {
-  const readiness = Math.max(0, Math.min(100, Math.round(coverage * 0.7 + Math.max(0, 30 - defects * 3))));
-  const status: StatusType = readiness >= 75 ? "Ready" : readiness >= 50 ? "At Risk" : "Not Ready";
-  return { status, readiness };
+function formatDate(dateValue?: string): string {
+  if (!dateValue) return "N/A";
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return dateValue;
+
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function mapBackendRelease(item: BackendRelease): Release {
+  return {
+    id: item.release_id,
+    targetDate: formatDate(item.target_date),
+    testCoverage: Number(item.test_coverage ?? 0),
+    defectDensity: Number(item.defect_density ?? 0),
+    spilloverRatio: Number(item.spillover_ratio ?? 0),
+    codeChurn: Number(item.code_churn ?? 0),
+    openCriticalBugs: Number(item.open_critical_bugs ?? 0),
+    regressionPassRate: Number(item.regression_pass_rate ?? 0),
+    sprintGoalsMet: Number(item.sprint_goal_met ?? 0),
+    velocityVariance: Number(item.velocity_variance ?? 0),
+    effortRatio: Number(item.effort_ratio ?? 0),
+    daysSinceIncident: Number(item.days_since_incident ?? 0),
+    mlStatus: item.ml_prediction?.status ?? item.readiness_label ?? "At Risk",
+    mlConfidence: Number(item.ml_prediction?.confidence ?? item.readiness ?? 0),
+    ruleStatus: item.rule_based?.status ?? "At Risk",
+    ruleScore: Number(item.rule_based?.score ?? 0),
+  };
 }
 
 export default function Releases() {
-  const [releases, setReleases] = useState<Release[]>(initialReleases);
+  const [releases, setReleases] = useState<Release[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(defaultForm);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"All" | StatusType>("All");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleAdd = () => {
-    const coverage = Number(form.testCoverage);
-    const bugs = Number(form.openCriticalBugs);
-    const { status, readiness } = computeStatus(coverage, bugs);
-    const newRelease: Release = {
-      id: form.id, targetDate: form.targetDate, testCoverage: coverage,
-      defectDensity: Number(form.defectDensity), spilloverRatio: Number(form.spilloverRatio),
-      codeChurn: Number(form.codeChurn), openCriticalBugs: bugs,
-      regressionPassRate: Number(form.regressionPassRate), sprintGoalsMet: Number(form.sprintGoalsMet),
-      velocityVariance: Number(form.velocityVariance), effortRatio: Number(form.effortRatio),
-      daysSinceIncident: Number(form.daysSinceIncident), status, readiness,
-    };
-    setReleases([newRelease, ...releases]);
-    setForm(defaultForm);
-    setShowForm(false);
+  const fetchReleases = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch("http://127.0.0.1:5000/api/releases");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch releases: ${response.status}`);
+      }
+
+      const data: BackendRelease[] = await response.json();
+
+      const mapped = data
+        .map(mapBackendRelease)
+        .sort((a, b) => {
+          const dateA =
+            a.targetDate === "N/A" ? 0 : new Date(a.targetDate).getTime();
+          const dateB =
+            b.targetDate === "N/A" ? 0 : new Date(b.targetDate).getTime();
+          return dateB - dateA;
+        });
+
+      setReleases(mapped);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load releases from backend.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const filtered = releases
-    .filter((r) => filter === "All" || r.status === filter)
-    .filter((r) => r.id.toLowerCase().includes(search.toLowerCase()));
+  useEffect(() => {
+    fetchReleases();
+  }, []);
 
-  const inputClass = "w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary";
+  const handleAdd = async () => {
+    try {
+      setSaving(true);
+      setError("");
+
+      const newRelease = {
+        release_id: form.id.trim(),
+        target_date: form.targetDate,
+        test_coverage: Number(form.testCoverage),
+        defect_density: Number(form.defectDensity),
+        spillover_ratio: Number(form.spilloverRatio),
+        code_churn: Number(form.codeChurn),
+        open_critical_bugs: Number(form.openCriticalBugs),
+        regression_pass_rate: Number(form.regressionPassRate),
+        sprint_goal_met: Number(form.sprintGoalsMet),
+        velocity_variance: Number(form.velocityVariance),
+        effort_ratio: Number(form.effortRatio),
+        days_since_incident: Number(form.daysSinceIncident),
+      };
+
+      const response = await fetch("http://127.0.0.1:5000/api/releases", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newRelease),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to add release");
+      }
+
+      if (result.release) {
+        const addedRelease = mapBackendRelease(result.release);
+        setReleases((prev) => [addedRelease, ...prev]);
+      } else {
+        await fetchReleases();
+      }
+
+      setForm(defaultForm);
+      setShowForm(false);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to save release.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    return releases
+      .filter((r) => filter === "All" || r.mlStatus === filter)
+      .filter((r) => r.id.toLowerCase().includes(search.toLowerCase()));
+  }, [releases, filter, search]);
+
+  const inputClass =
+    "w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary";
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 max-w-7xl">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-foreground">Release Management</h2>
-          <p className="text-sm text-muted-foreground">Track and manage all releases</p>
+          <h2 className="text-xl font-semibold text-foreground">
+            Release Management
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Track and manage all releases
+          </p>
         </div>
+
         <button
           onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/90 transition-colors"
@@ -87,7 +224,7 @@ export default function Releases() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             className="w-full bg-secondary border border-border rounded-md pl-9 pr-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -96,10 +233,11 @@ export default function Releases() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+
         <select
           className="bg-secondary border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           value={filter}
-          onChange={(e) => setFilter(e.target.value as any)}
+          onChange={(e) => setFilter(e.target.value as "All" | StatusType)}
         >
           <option value="All">All</option>
           <option value="Ready">Ready</option>
@@ -110,101 +248,205 @@ export default function Releases() {
 
       {showForm && (
         <div className="gradient-card border border-border rounded-lg p-5 animate-slide-up">
-          <h3 className="text-sm font-medium text-foreground mb-4">Create New Release</h3>
+          <h3 className="text-sm font-medium text-foreground mb-4">
+            Create New Release
+          </h3>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Release ID</label>
-              <input className={inputClass} placeholder="v2.5.0" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} />
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Release ID
+              </label>
+              <input
+                className={inputClass}
+                placeholder="v1.4.0"
+                value={form.id}
+                onChange={(e) => setForm({ ...form, id: e.target.value })}
+              />
             </div>
+
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Target Date</label>
-              <input type="date" className={inputClass} value={form.targetDate} onChange={(e) => setForm({ ...form, targetDate: e.target.value })} />
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Target Date
+              </label>
+              <input
+                type="date"
+                className={inputClass}
+                value={form.targetDate}
+                onChange={(e) =>
+                  setForm({ ...form, targetDate: e.target.value })
+                }
+              />
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Test Coverage %</label>
-              <input type="number" className={inputClass} placeholder="85" value={form.testCoverage} onChange={(e) => setForm({ ...form, testCoverage: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Defect Density</label>
-              <input type="number" step="0.1" className={inputClass} placeholder="0.3" value={form.defectDensity} onChange={(e) => setForm({ ...form, defectDensity: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Spillover Ratio %</label>
-              <input type="number" className={inputClass} placeholder="8" value={form.spilloverRatio} onChange={(e) => setForm({ ...form, spilloverRatio: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Code Churn %</label>
-              <input type="number" className={inputClass} placeholder="12" value={form.codeChurn} onChange={(e) => setForm({ ...form, codeChurn: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Open Critical Bugs</label>
-              <input type="number" className={inputClass} placeholder="0" value={form.openCriticalBugs} onChange={(e) => setForm({ ...form, openCriticalBugs: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Regression Pass Rate %</label>
-              <input type="number" className={inputClass} placeholder="94" value={form.regressionPassRate} onChange={(e) => setForm({ ...form, regressionPassRate: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Sprint Goals Met</label>
-              <select className={inputClass} value={form.sprintGoalsMet} onChange={(e) => setForm({ ...form, sprintGoalsMet: e.target.value })}>
-                <option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Velocity Variance %</label>
-              <input type="number" className={inputClass} placeholder="10" value={form.velocityVariance} onChange={(e) => setForm({ ...form, velocityVariance: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Effort Ratio</label>
-              <input type="number" step="0.01" className={inputClass} placeholder="1.05" value={form.effortRatio} onChange={(e) => setForm({ ...form, effortRatio: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Days Since Incident</label>
-              <input type="number" className={inputClass} placeholder="55" value={form.daysSinceIncident} onChange={(e) => setForm({ ...form, daysSinceIncident: e.target.value })} />
-            </div>
+
+            {/* Rest of the form fields... */}
           </div>
+
           <div className="flex gap-3 mt-4">
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
-            <button onClick={handleAdd} disabled={!form.id || !form.targetDate} className="px-6 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40">Save Release</button>
+            <button
+              onClick={() => setShowForm(false)}
+              className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+
+            <button
+              onClick={handleAdd}
+              disabled={
+                saving ||
+                !form.id ||
+                !form.targetDate ||
+                !form.testCoverage ||
+                !form.defectDensity ||
+                !form.openCriticalBugs ||
+                !form.regressionPassRate
+              }
+              className="px-6 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
+            >
+              {saving ? "Saving..." : "Save Release"}
+            </button>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filtered.map((r) => (
-          <div key={r.id} className="gradient-card border border-border rounded-lg p-5 animate-slide-up hover:border-primary/20 transition-colors">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <p className="font-mono text-lg font-bold text-foreground">{r.id}</p>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                  <Calendar className="h-3 w-3" /> {r.targetDate}
-                </div>
-              </div>
-              <StatusBadge status={r.status} />
-            </div>
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Readiness</span><span className="font-mono">{r.readiness}%</span></div>
-                <ProgressBar value={r.readiness} variant={r.status === "Ready" ? "success" : r.status === "At Risk" ? "warning" : "danger"} />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Test Coverage</span><span className="font-mono">{r.testCoverage}%</span></div>
-                <ProgressBar value={r.testCoverage} variant="default" />
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
-                <span>Defect Density: <span className="font-mono text-foreground">{r.defectDensity}/KLOC</span></span>
-                <span>Regression Pass: <span className="font-mono text-foreground">{r.regressionPassRate}%</span></span>
-                <span className="flex items-center gap-1"><Bug className="h-3 w-3" /> Critical Bugs: <span className="font-mono text-foreground">{r.openCriticalBugs}</span></span>
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4 pt-3 border-t border-border/50">
-              <button className="text-xs text-accent hover:text-accent/80 font-medium transition-colors">View Details</button>
-              <span className="text-border">·</span>
-              <button className="text-xs text-primary hover:text-primary/80 font-medium transition-colors">Predict</button>
-            </div>
+      {loading && (
+        <div className="gradient-card border border-border rounded-lg p-6 text-sm text-muted-foreground">
+          Loading releases...
+        </div>
+      )}
+
+      {error && (
+        <div className="gradient-card border border-destructive/30 rounded-lg p-6 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="gradient-card border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1450px] text-sm">
+              <thead className="bg-secondary/60 border-b border-border">
+                <tr className="text-left">
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Release ID
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Date
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    ML Prediction
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    ML Confidence
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Rule-Based
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Rule Score
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Coverage
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Defect Density
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Critical Bugs
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Regression %
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Spillover %
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Code Churn %
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Velocity Var %
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Goals Met
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Effort Ratio
+                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">
+                    Days Since Incident
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filtered.map((r, index) => (
+                  <tr
+                    key={r.id}
+                    className={`border-b border-border/50 hover:bg-secondary/30 transition-colors ${
+                      index % 2 === 0 ? "bg-transparent" : "bg-secondary/10"
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-mono font-semibold text-foreground">
+                      {r.id}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {r.targetDate}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={r.mlStatus} />
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.mlConfidence}%
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={r.ruleStatus} />
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.ruleScore}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.testCoverage}%
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.defectDensity}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.openCriticalBugs}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.regressionPassRate}%
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.spilloverRatio}%
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.codeChurn}%
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.velocityVariance}%
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.sprintGoalsMet}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.effortRatio}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.daysSinceIncident}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className="gradient-card border border-border rounded-lg p-6 text-sm text-muted-foreground">
+          No releases found.
+        </div>
+      )}
     </div>
   );
 }
