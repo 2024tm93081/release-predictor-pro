@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Plus, X, Search } from "lucide-react";
+import { Plus, X, Search, Pencil } from "lucide-react";
 
 type StatusType = "Ready" | "At Risk" | "Not Ready";
 
@@ -76,6 +76,15 @@ function formatDate(dateValue?: string): string {
   });
 }
 
+function formatDateForInput(dateValue?: string): string {
+  if (!dateValue) return "";
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().split("T")[0];
+}
+
 function mapBackendRelease(item: BackendRelease): Release {
   return {
     id: item.release_id,
@@ -101,6 +110,7 @@ export default function Releases() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(defaultForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"All" | StatusType>("All");
   const [loading, setLoading] = useState(true);
@@ -122,10 +132,8 @@ export default function Releases() {
       const mapped = data
         .map(mapBackendRelease)
         .sort((a, b) => {
-          const dateA =
-            a.targetDate === "N/A" ? 0 : new Date(a.targetDate).getTime();
-          const dateB =
-            b.targetDate === "N/A" ? 0 : new Date(b.targetDate).getTime();
+          const dateA = a.targetDate === "N/A" ? 0 : new Date(a.targetDate).getTime();
+          const dateB = b.targetDate === "N/A" ? 0 : new Date(b.targetDate).getTime();
           return dateB - dateA;
         });
 
@@ -141,6 +149,79 @@ export default function Releases() {
   useEffect(() => {
     fetchReleases();
   }, []);
+
+  const resetFormState = () => {
+    setForm(defaultForm);
+    setEditingId(null);
+    setShowForm(false);
+  };
+
+  const handleEditClick = async (releaseId: string) => {
+    try {
+      setError("");
+
+      const response = await fetch(
+        `http://127.0.0.1:5000/api/releases/${encodeURIComponent(releaseId)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch release details: ${response.status}`);
+      }
+
+      const item: BackendRelease = await response.json();
+
+      setForm({
+        id: item.release_id ?? "",
+        targetDate: formatDateForInput(item.target_date),
+        testCoverage: String(item.test_coverage ?? ""),
+        defectDensity: String(item.defect_density ?? ""),
+        spilloverRatio: String(item.spillover_ratio ?? ""),
+        codeChurn: String(item.code_churn ?? ""),
+        openCriticalBugs: String(item.open_critical_bugs ?? ""),
+        regressionPassRate: String(item.regression_pass_rate ?? ""),
+        sprintGoalsMet: String(item.sprint_goal_met ?? "3"),
+        velocityVariance: String(item.velocity_variance ?? ""),
+        effortRatio: String(item.effort_ratio ?? ""),
+        daysSinceIncident: String(item.days_since_incident ?? ""),
+      });
+
+      setEditingId(releaseId);
+      setShowForm(true);
+    } catch (err) {
+      console.error(err);
+
+      const existingRelease = releases.find((r) => r.id === releaseId);
+      if (existingRelease) {
+        const parsedTargetDate =
+          existingRelease.targetDate !== "N/A"
+            ? new Date(existingRelease.targetDate)
+            : null;
+
+        setForm({
+          id: existingRelease.id,
+          targetDate:
+            parsedTargetDate && !Number.isNaN(parsedTargetDate.getTime())
+              ? parsedTargetDate.toISOString().split("T")[0]
+              : "",
+          testCoverage: String(existingRelease.testCoverage),
+          defectDensity: String(existingRelease.defectDensity),
+          spilloverRatio: String(existingRelease.spilloverRatio),
+          codeChurn: String(existingRelease.codeChurn),
+          openCriticalBugs: String(existingRelease.openCriticalBugs),
+          regressionPassRate: String(existingRelease.regressionPassRate),
+          sprintGoalsMet: String(existingRelease.sprintGoalsMet),
+          velocityVariance: String(existingRelease.velocityVariance),
+          effortRatio: String(existingRelease.effortRatio),
+          daysSinceIncident: String(existingRelease.daysSinceIncident),
+        });
+
+        setEditingId(releaseId);
+        setShowForm(true);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load release for editing.");
+      }
+    }
+  };
 
   const handleAdd = async () => {
     try {
@@ -183,11 +264,67 @@ export default function Releases() {
         await fetchReleases();
       }
 
-      setForm(defaultForm);
-      setShowForm(false);
+      resetFormState();
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to save release.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    try {
+      if (!editingId) return;
+
+      setSaving(true);
+      setError("");
+
+      const updatedRelease = {
+        release_id: form.id.trim(),
+        target_date: form.targetDate,
+        test_coverage: Number(form.testCoverage),
+        defect_density: Number(form.defectDensity),
+        spillover_ratio: Number(form.spilloverRatio),
+        code_churn: Number(form.codeChurn),
+        open_critical_bugs: Number(form.openCriticalBugs),
+        regression_pass_rate: Number(form.regressionPassRate),
+        sprint_goal_met: Number(form.sprintGoalsMet),
+        velocity_variance: Number(form.velocityVariance),
+        effort_ratio: Number(form.effortRatio),
+        days_since_incident: Number(form.daysSinceIncident),
+      };
+
+      const response = await fetch(
+        `http://127.0.0.1:5000/api/releases/${encodeURIComponent(editingId)}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updatedRelease),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to update release");
+      }
+
+      if (result.release) {
+        const mappedRelease = mapBackendRelease(result.release);
+        setReleases((prev) =>
+          prev.map((item) => (item.id === editingId ? mappedRelease : item))
+        );
+      } else {
+        await fetchReleases();
+      }
+
+      resetFormState();
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to update release.");
     } finally {
       setSaving(false);
     }
@@ -215,7 +352,15 @@ export default function Releases() {
         </div>
 
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => {
+            if (showForm) {
+              resetFormState();
+            } else {
+              setShowForm(true);
+              setEditingId(null);
+              setForm(defaultForm);
+            }
+          }}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/90 transition-colors"
         >
           {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
@@ -249,7 +394,7 @@ export default function Releases() {
       {showForm && (
         <div className="gradient-card border border-border rounded-lg p-5 animate-slide-up">
           <h3 className="text-sm font-medium text-foreground mb-4">
-            Create New Release
+            {editingId ? "Edit Release" : "Create New Release"}
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -262,6 +407,7 @@ export default function Releases() {
                 placeholder="v1.4.0"
                 value={form.id}
                 onChange={(e) => setForm({ ...form, id: e.target.value })}
+                disabled={!!editingId}
               />
             </div>
 
@@ -273,37 +419,174 @@ export default function Releases() {
                 type="date"
                 className={inputClass}
                 value={form.targetDate}
-                onChange={(e) =>
-                  setForm({ ...form, targetDate: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
               />
             </div>
 
-            {/* Rest of the form fields... */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Test Coverage %
+              </label>
+              <input
+                type="number"
+                className={inputClass}
+                value={form.testCoverage}
+                onChange={(e) => setForm({ ...form, testCoverage: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Defect Density
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputClass}
+                value={form.defectDensity}
+                onChange={(e) => setForm({ ...form, defectDensity: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Spillover Ratio %
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputClass}
+                value={form.spilloverRatio}
+                onChange={(e) => setForm({ ...form, spilloverRatio: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Code Churn %
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputClass}
+                value={form.codeChurn}
+                onChange={(e) => setForm({ ...form, codeChurn: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Open Critical Bugs
+              </label>
+              <input
+                type="number"
+                className={inputClass}
+                value={form.openCriticalBugs}
+                onChange={(e) => setForm({ ...form, openCriticalBugs: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Regression Pass Rate %
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputClass}
+                value={form.regressionPassRate}
+                onChange={(e) => setForm({ ...form, regressionPassRate: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Sprint Goals Met
+              </label>
+              <select
+                className={inputClass}
+                value={form.sprintGoalsMet}
+                onChange={(e) => setForm({ ...form, sprintGoalsMet: e.target.value })}
+              >
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Velocity Variance %
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputClass}
+                value={form.velocityVariance}
+                onChange={(e) => setForm({ ...form, velocityVariance: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Effort Ratio
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputClass}
+                value={form.effortRatio}
+                onChange={(e) => setForm({ ...form, effortRatio: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Days Since Incident
+              </label>
+              <input
+                type="number"
+                className={inputClass}
+                value={form.daysSinceIncident}
+                onChange={(e) => setForm({ ...form, daysSinceIncident: e.target.value })}
+              />
+            </div>
           </div>
 
           <div className="flex gap-3 mt-4">
             <button
-              onClick={() => setShowForm(false)}
+              onClick={resetFormState}
               className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               Cancel
             </button>
 
             <button
-              onClick={handleAdd}
+              onClick={editingId ? handleUpdate : handleAdd}
               disabled={
                 saving ||
                 !form.id ||
                 !form.targetDate ||
                 !form.testCoverage ||
                 !form.defectDensity ||
+                !form.spilloverRatio ||
+                !form.codeChurn ||
                 !form.openCriticalBugs ||
-                !form.regressionPassRate
+                !form.regressionPassRate ||
+                !form.velocityVariance ||
+                !form.effortRatio ||
+                !form.daysSinceIncident
               }
               className="px-6 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
             >
-              {saving ? "Saving..." : "Save Release"}
+              {saving
+                ? editingId
+                  ? "Updating..."
+                  : "Saving..."
+                : editingId
+                ? "Update Release"
+                : "Save Release"}
             </button>
           </div>
         </div>
@@ -324,57 +607,26 @@ export default function Releases() {
       {!loading && !error && (
         <div className="gradient-card border border-border rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1450px] text-sm">
+            <table className="w-full min-w-[1750px] text-sm">
               <thead className="bg-secondary/60 border-b border-border">
                 <tr className="text-left">
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Release ID
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Date
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    ML Prediction
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    ML Confidence
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Rule-Based
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Rule Score
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Coverage
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Defect Density
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Critical Bugs
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Regression %
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Spillover %
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Code Churn %
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Velocity Var %
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Goals Met
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Effort Ratio
-                  </th>
-                  <th className="px-4 py-3 font-medium text-foreground">
-                    Days Since Incident
-                  </th>
+                  <th className="px-4 py-3 font-medium text-foreground">Release ID</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Date</th>
+                  <th className="px-4 py-3 font-medium text-foreground">ML Prediction</th>
+                  <th className="px-4 py-3 font-medium text-foreground">ML Confidence</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Rule-Based</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Rule Score</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Coverage</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Defect Density</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Critical Bugs</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Regression %</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Spillover %</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Code Churn %</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Velocity Var %</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Goals Met</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Effort Ratio</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Days Since Incident</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Actions</th>
                 </tr>
               </thead>
 
@@ -386,53 +638,34 @@ export default function Releases() {
                       index % 2 === 0 ? "bg-transparent" : "bg-secondary/10"
                     }`}
                   >
-                    <td className="px-4 py-3 font-mono font-semibold text-foreground">
-                      {r.id}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {r.targetDate}
-                    </td>
+                    <td className="px-4 py-3 font-mono font-semibold text-foreground">{r.id}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{r.targetDate}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={r.mlStatus} />
                     </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.mlConfidence}%
-                    </td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.mlConfidence}%</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={r.ruleStatus} />
                     </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.ruleScore}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.testCoverage}%
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.defectDensity}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.openCriticalBugs}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.regressionPassRate}%
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.spilloverRatio}%
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.codeChurn}%
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.velocityVariance}%
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.sprintGoalsMet}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.effortRatio}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.daysSinceIncident}
+                    <td className="px-4 py-3 font-mono text-foreground">{r.ruleScore}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.testCoverage}%</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.defectDensity}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.openCriticalBugs}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.regressionPassRate}%</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.spilloverRatio}%</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.codeChurn}%</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.velocityVariance}%</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.sprintGoalsMet}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.effortRatio}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.daysSinceIncident}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleEditClick(r.id)}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs text-foreground hover:bg-secondary/60 transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}

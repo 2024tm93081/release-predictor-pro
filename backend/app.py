@@ -8,7 +8,7 @@ from flask_cors import CORS
 import pickle
 import json
 import os
-from db import historical_releases
+from db import historical_releases, sprints
 
 app = Flask(__name__)
 CORS(app)
@@ -32,6 +32,34 @@ except Exception as e:
 FEATURES = results["features"]
 THRESHOLDS = results["thresholds"]
 
+
+def get_rule_based_status(data):
+    score = 0
+    total = len(THRESHOLDS)
+
+    for key, threshold in THRESHOLDS.items():
+        value = data.get(key)
+
+        if value is None:
+            continue
+
+        if "max" in threshold:
+            if value <= threshold["max"]:
+                score += 1
+        elif "min" in threshold:
+            if value >= threshold["min"]:
+                score += 1
+
+    final_score = score / total
+
+    if final_score >= 0.8:
+        status = "Ready"
+    elif final_score >= 0.5:
+        status = "At Risk"
+    else:
+        status = "Not Ready"
+
+    return status, round(final_score * 100, 2)
 
 # ── Helper: Blocking Factors ─────────────────────────────
 def get_blocking_factors(data):
@@ -171,7 +199,10 @@ def predict():
         data = request.get_json()
 
         if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
 
         missing_fields = [field for field in FEATURES if field not in data]
         if missing_fields:
@@ -180,17 +211,33 @@ def predict():
                 "error": f"Missing required fields: {', '.join(missing_fields)}"
             }), 400
 
+        # ML prediction
         ml_result = calculate_ml_prediction(data)
-        rule_result = calculate_rule_based(data)
+
+        # Rule-based scoring
+        rule_status, rule_score = get_rule_based_status(data)
+
+        # Blocking / healthy metrics
         blockers, healthy = get_blocking_factors(data)
 
         return jsonify({
             "success": True,
+
+            # Main ML output
             "final_prediction": ml_result["final_prediction"],
             "readiness": ml_result["readiness"],
+
+            # Model-wise details
             "random_forest": ml_result["random_forest"],
             "catboost": ml_result["catboost"],
-            "rule_based": rule_result,
+
+            # Rule-based details
+            "rule_based": {
+                "status": rule_status,
+                "score": rule_score
+            },
+
+            # Explainability
             "blocking_factors": blockers,
             "healthy_metrics": healthy,
             "blocker_count": len(blockers)
@@ -198,8 +245,10 @@ def predict():
 
     except Exception as e:
         print("Predict API error:", str(e))
-        return jsonify({"success": False, "error": str(e)}), 500
-
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 # ── API: Model Comparison ────────────────────────────────
 @app.route("/api/comparison", methods=["GET"])
@@ -227,8 +276,71 @@ def features():
 # ── API: Releases ────────────────────────────────────────
 @app.route("/api/releases", methods=["GET"])
 def get_releases():
-    data = list(historical_releases.find({}, {"_id": 0}))
-    return jsonify(data)
+    try:
+        data = list(historical_releases.find({}, {"_id": 0}))
+
+        for item in data:
+            try:
+                rule_status, rule_score = get_rule_based_status(item)
+
+                item["rule_based"] = {
+                    "status": rule_status,
+                    "score": rule_score
+                }
+
+                if "ml_prediction" not in item:
+                    item["ml_prediction"] = {
+                        "status": item.get("readiness_label", "At Risk"),
+                        "confidence": item.get("readiness", 0)
+                    }
+            except Exception as inner_error:
+                print(f"Release mapping error for {item.get('release_id')}: {inner_error}")
+
+        return jsonify(data)
+
+    except Exception as e:
+        print("Get releases error:", str(e))
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/releases/<release_id>", methods=["GET"])
+def get_release_by_id(release_id):
+    try:
+        item = historical_releases.find_one({"release_id": release_id}, {"_id": 0})
+
+        if not item:
+            return jsonify({
+                "success": False,
+                "error": "Release not found"
+            }), 404
+
+        try:
+            rule_status, rule_score = get_rule_based_status(item)
+
+            item["rule_based"] = {
+                "status": rule_status,
+                "score": rule_score
+            }
+
+            if "ml_prediction" not in item:
+                item["ml_prediction"] = {
+                    "status": item.get("readiness_label", "At Risk"),
+                    "confidence": item.get("readiness", 0)
+                }
+        except Exception as inner_error:
+            print(f"Single release mapping error for {item.get('release_id')}: {inner_error}")
+
+        return jsonify(item)
+
+    except Exception as e:
+        print("Get single release error:", str(e))
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @app.route("/api/releases", methods=["POST"])
@@ -237,15 +349,24 @@ def add_release():
         data = request.get_json()
 
         if not data:
-            return jsonify({"success": False, "error": "No data provided"}), 400
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
 
         release_id = data.get("release_id")
         if not release_id:
-            return jsonify({"success": False, "error": "release_id is required"}), 400
+            return jsonify({
+                "success": False,
+                "error": "release_id is required"
+            }), 400
 
         existing = historical_releases.find_one({"release_id": release_id})
         if existing:
-            return jsonify({"success": False, "error": "Release ID already exists"}), 400
+            return jsonify({
+                "success": False,
+                "error": "Release ID already exists"
+            }), 400
 
         missing_fields = [field for field in FEATURES if field not in data]
         if missing_fields:
@@ -254,8 +375,13 @@ def add_release():
                 "error": f"Missing required fields: {', '.join(missing_fields)}"
             }), 400
 
+        # ML prediction
         ml_result = calculate_ml_prediction(data)
-        rule_result = calculate_rule_based(data)
+
+        # Rule-based scoring
+        rule_status, rule_score = get_rule_based_status(data)
+
+        # Blocking / healthy metrics
         blockers, healthy = get_blocking_factors(data)
 
         release_document = {
@@ -276,49 +402,186 @@ def add_release():
             "readiness_label": ml_result["final_prediction"],
             "readiness": ml_result["readiness"],
 
-            # Detailed outputs
+            # ML details
             "ml_prediction": {
                 "status": ml_result["final_prediction"],
                 "confidence": ml_result["readiness"],
                 "random_forest": ml_result["random_forest"],
                 "catboost": ml_result["catboost"]
             },
+
+            # Rule-based details
             "rule_based": {
-                "status": rule_result["prediction"],
-                "score": rule_result["score"],
-                "readiness": rule_result["readiness"]
+                "status": rule_status,
+                "score": rule_score
             },
+
+            # Explainability
             "blocking_factors": blockers,
             "healthy_metrics": healthy
         }
 
         historical_releases.insert_one(release_document)
+        response_release = {**release_document}
+        response_release.pop("_id", None)
 
         return jsonify({
             "success": True,
             "message": "Release added successfully",
-            "release": release_document
+            "release": response_release
         }), 201
 
     except Exception as e:
         print("Add release error:", str(e))
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
+
+@app.route("/api/releases/<release_id>", methods=["PUT"])
+def update_release(release_id):
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+
+        existing = historical_releases.find_one({"release_id": release_id})
+        if not existing:
+            return jsonify({
+                "success": False,
+                "error": "Release not found"
+            }), 404
+
+        missing_fields = [field for field in FEATURES if field not in data]
+        if missing_fields:
+            return jsonify({
+                "success": False,
+                "error": f"Missing required fields: {', '.join(missing_fields)}"
+            }), 400
+
+        new_release_id = data.get("release_id", release_id)
+
+        if new_release_id != release_id:
+            duplicate = historical_releases.find_one({"release_id": new_release_id})
+            if duplicate:
+                return jsonify({
+                    "success": False,
+                    "error": "Release ID already exists"
+                }), 400
+
+        # ML prediction
+        ml_result = calculate_ml_prediction(data)
+
+        # Rule-based scoring
+        rule_status, rule_score = get_rule_based_status(data)
+
+        # Blocking / healthy metrics
+        blockers, healthy = get_blocking_factors(data)
+
+        updated_document = {
+            "release_id": new_release_id,
+            "target_date": data.get("target_date"),
+            "test_coverage": data["test_coverage"],
+            "defect_density": data["defect_density"],
+            "spillover_ratio": data["spillover_ratio"],
+            "code_churn": data["code_churn"],
+            "open_critical_bugs": data["open_critical_bugs"],
+            "regression_pass_rate": data["regression_pass_rate"],
+            "sprint_goal_met": data["sprint_goal_met"],
+            "velocity_variance": data["velocity_variance"],
+            "effort_ratio": data["effort_ratio"],
+            "days_since_incident": data["days_since_incident"],
+
+            # Main display values
+            "readiness_label": ml_result["final_prediction"],
+            "readiness": ml_result["readiness"],
+
+            # ML details
+            "ml_prediction": {
+                "status": ml_result["final_prediction"],
+                "confidence": ml_result["readiness"],
+                "random_forest": ml_result["random_forest"],
+                "catboost": ml_result["catboost"]
+            },
+
+            # Rule-based details
+            "rule_based": {
+                "status": rule_status,
+                "score": rule_score
+            },
+
+            # Explainability
+            "blocking_factors": blockers,
+            "healthy_metrics": healthy
+        }
+
+        historical_releases.update_one(
+            {"release_id": release_id},
+            {"$set": updated_document}
+        )
+
+        response_release = {**updated_document}
+
+        return jsonify({
+            "success": True,
+            "message": "Release updated successfully",
+            "release": response_release
+        }), 200
+
+    except Exception as e:
+        print("Update release error:", str(e))
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 # ── API: Sprints ─────────────────────────────────────────
 @app.route("/api/sprints", methods=["GET"])
-def sprints():
-    sprints_data = [
-        {"name": "Sprint 24", "velocity": 84, "planned": 90,
-         "completed": 84, "spillover": 8, "goal_met": "3/3", "status": "Healthy"},
-        {"name": "Sprint 23", "velocity": 71, "planned": 85,
-         "completed": 71, "spillover": 18, "goal_met": "2/3", "status": "Warning"},
-        {"name": "Sprint 22", "velocity": 90, "planned": 88,
-         "completed": 90, "spillover": 4, "goal_met": "3/3", "status": "Healthy"},
-        {"name": "Sprint 21", "velocity": 65, "planned": 78,
-         "completed": 65, "spillover": 22, "goal_met": "1/3", "status": "Critical"},
-    ]
-    return jsonify({"success": True, "sprints": sprints_data})
+def get_sprints():
+    try:
+        sprint_data = list(sprints.find({}, {"_id": 0}))
+
+        return jsonify({
+            "success": True,
+            "data": sprint_data
+        }), 200
+
+    except Exception as e:
+        print("Get sprints error:", str(e))
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+    try:
+        release_id = request.args.get("release_id")
+
+        query = {}
+        if release_id:
+            query["release_id"] = release_id
+
+        sprint_data = list(
+            db.sprints.find(query, {"_id": 0}).sort([
+                ("release_target_date", -1),
+                ("sprint_order", -1)
+            ])
+        )
+
+        return jsonify({
+            "success": True,
+            "data": sprint_data
+        }), 200
+
+    except Exception as e:
+        print("Get sprints error:", str(e))
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
