@@ -8,7 +8,7 @@ export default function About() {
         <p className="text-sm text-muted-foreground">Data-Driven Release Readiness Prediction for Agile Software Products</p>
       </div>
 
-      <div className="gradient-card border border-border rounded-lg p-6">
+      {/* <div className="gradient-card border border-border rounded-lg p-6">
         <div className="flex items-start gap-4">
           <div className="h-14 w-14 rounded-xl bg-accent/15 flex items-center justify-center shrink-0">
             <div className="h-6 w-6 rounded-full bg-accent animate-pulse" />
@@ -35,7 +35,7 @@ export default function About() {
             </div>
           ))}
         </div>
-      </div>
+      </div> */}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="gradient-card border border-border rounded-lg p-5">
@@ -44,13 +44,13 @@ export default function About() {
             <div className="p-3 rounded-lg bg-secondary/30 border border-primary/20">
               <div className="flex items-center gap-2 mb-2"><span className="text-base">🌳</span><span className="text-sm font-semibold text-foreground">Random Forest (Primary)</span></div>
               <ul className="text-xs text-muted-foreground space-y-1 pl-6">
-                <li>100 decision trees</li><li>Bootstrap sampling</li><li>Majority voting</li><li>F1-Score: <span className="font-mono text-primary">0.94</span></li>
+                <li>100 decision trees</li><li>Bootstrap sampling</li><li>Majority voting</li><li>F1-Score: <span className="font-mono text-primary">0.86</span></li>
               </ul>
             </div>
             <div className="p-3 rounded-lg bg-secondary/30 border border-accent/20">
               <div className="flex items-center gap-2 mb-2"><span className="text-base">🚀</span><span className="text-sm font-semibold text-foreground">CatBoost (Comparison)</span></div>
               <ul className="text-xs text-muted-foreground space-y-1 pl-6">
-                <li>100 sequential trees</li><li>Error correction learning</li><li>Categorical support</li><li>F1-Score: <span className="font-mono text-accent">0.92</span></li>
+                <li>100 sequential trees</li><li>Error correction learning</li><li>Categorical support</li><li>F1-Score: <span className="font-mono text-accent">0.91</span></li>
               </ul>
             </div>
             <div className="p-3 rounded-lg bg-secondary/30 border border-border">

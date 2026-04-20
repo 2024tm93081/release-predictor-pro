@@ -19,7 +19,7 @@ const items = [
   { title: "Quality", url: "/quality", icon: Shield },
   { title: "Predict", url: "/predict", icon: Brain },
   { title: "Model Evaluation", url: "/model-evaluation", icon: BarChart3 },
-  { title: "Feature Insights", url: "/feature-insights", icon: Lightbulb },
+  // { title: "Feature Insights", url: "/feature-insights", icon: Lightbulb },
   { title: "About", url: "/about", icon: Info },
 ];
 
