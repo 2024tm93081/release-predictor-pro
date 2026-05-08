@@ -1,73 +1,164 @@
-# Welcome to your Lovable project
+# Release Pulse
 
-## Project info
+## A Data-Driven Framework for Release Readiness Prediction Using Machine Learning
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+Release Pulse is a full-stack machine learning-based decision support system designed to predict software release readiness in Agile engineering environments.
 
-## How can I edit this code?
+The system analyzes historical release and sprint metrics to classify releases into:
 
-There are several ways of editing your application.
+- Ready
+- At Risk
+- Not Ready
 
-**Use Lovable**
+It combines:
+- Machine Learning prediction
+- Rule-Based evaluation
+- Blocking factor analysis
+- Feature impact analysis
+- Quality metrics visualization
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+to help Release Managers make data-driven release decisions.
 
-Changes made via Lovable will be committed automatically to this repo.
+---
 
-**Use your preferred IDE**
+# Features
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Dashboard
+- Release readiness overview
+- Readiness trend visualization
+- Sprint velocity tracking
+- Blocking factor summary
+- Recent release monitoring
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Release Management
+- View all releases
+- ML prediction status
+- Prediction confidence
+- Readiness score
+- Rule-based score
+- Historical metrics tracking
 
-Follow these steps:
+## Sprint Analytics
+- Sprint-wise performance analysis
+- Planned vs completed story points
+- Velocity trend analysis
+- Spillover monitoring
+- Sprint health tracking
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Quality Metrics
+- Test coverage tracking
+- Defect density analysis
+- Regression pass rate
+- Critical bugs monitoring
+- Quality gate validation
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## ML Prediction Engine
+- Predict release readiness
+- CatBoost and Random Forest comparison
+- Prediction confidence
+- Blocking factor identification
+- Feature impact visualization
 
-# Step 3: Install the necessary dependencies.
-npm i
+## Model Evaluation
+- Cross-validation analysis
+- Accuracy / Precision / Recall / F1 comparison
+- Confusion matrices
+- Classification reports
+- Prediction history
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+---
 
-**Edit a file directly in GitHub**
+# Tech Stack
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
+## Frontend
+- React 18
 - TypeScript
-- React
-- shadcn-ui
 - Tailwind CSS
+- shadcn/ui
+- Recharts
 
-## How can I deploy this project?
+## Backend
+- Python Flask
+- Flask-CORS
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Database
+- MongoDB
 
-## Can I connect a custom domain to my Lovable project?
+## Machine Learning
+- CatBoost
+- Random Forest
+- Scikit-learn
+- Pandas
+- NumPy
 
-Yes, you can!
+---
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+# Machine Learning Models
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Primary Model
+### CatBoost
+Selected as the primary model based on:
+- Higher Cross-Validation F1 Score
+- Better generalization
+- Lower variance across folds
+- Better handling of complex feature interactions
+
+## Comparison Model
+### Random Forest
+Used as:
+- Baseline ensemble comparison model
+- Interpretable reference model
+
+## Baseline
+### Rule-Based Evaluation
+Implements predefined engineering quality gates for explainable comparison.
+
+---
+
+# Dataset Features
+
+The system evaluates releases using the following metrics:
+
+- Test Coverage
+- Defect Density
+- Spillover Ratio
+- Code Churn
+- Open Critical Bugs
+- Regression Pass Rate
+- Sprint Goals Met
+- Velocity Variance
+- Effort Ratio
+- Days Since Incident
+- Sprint Count
+- Average Velocity
+
+---
+
+# System Architecture
+
+Frontend (React + TypeScript)
+↓
+Flask REST API
+↓
+Machine Learning Layer
+↓
+MongoDB Database
+
+---
+
+# Installation
+
+## Prerequisites
+
+- Node.js
+- Python 3.9+
+- MongoDB
+
+---
+
+# Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev
