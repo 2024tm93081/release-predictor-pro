@@ -9,6 +9,8 @@ import pickle
 import json
 import os
 from db import historical_releases, sprints
+import pandas as pd
+import numpy as np
 
 app = Flask(__name__)
 CORS(app)
@@ -141,40 +143,55 @@ def calculate_rule_based(data):
 
 
 # ── Helper: ML Prediction ────────────────────────────────
-def calculate_ml_prediction(data):
-    features = [[data[f] for f in FEATURES]]
 
+
+def to_scalar(value):
+    arr = np.array(value).flatten()
+    return str(arr[0]) if len(arr) > 0 else "At Risk"
+
+
+def calculate_ml_prediction(data):
+    # Use DataFrame so feature names match training
+    X_input = pd.DataFrame([[data[f] for f in FEATURES]], columns=FEATURES)
+
+    # -------------------------
     # Random Forest
-    rf_pred = rf_model.predict(features)[0]
-    rf_proba = rf_model.predict_proba(features)[0]
-    rf_classes = rf_model.classes_
-    rf_confidence = round(float(max(rf_proba)) * 100, 1)
+    # -------------------------
+    rf_pred_raw = rf_model.predict(X_input)
+    rf_pred = to_scalar(rf_pred_raw)
+
+    rf_proba = np.array(rf_model.predict_proba(X_input)[0]).flatten()
+    rf_classes = [str(c) for c in rf_model.classes_]
+
     rf_proba_dict = {
         str(c): round(float(p) * 100, 1)
         for c, p in zip(rf_classes, rf_proba)
     }
 
-    # CatBoost / fallback model
-    cb_pred = cb_model.predict(features)
-    cb_label = cb_pred[0] if isinstance(cb_pred[0], str) else str(cb_pred[0])
+    rf_confidence = rf_proba_dict.get(rf_pred, round(float(np.max(rf_proba)) * 100, 1))
 
-    cb_confidence = None
-    cb_proba_dict = {}
+    # -------------------------
+    # CatBoost
+    # -------------------------
+    cb_pred_raw = cb_model.predict(X_input)
+    cb_label = to_scalar(cb_pred_raw)
 
-    if hasattr(cb_model, "predict_proba"):
-        cb_proba = cb_model.predict_proba(features)[0]
-        cb_classes = cb_model.classes_
-        cb_confidence = round(float(max(cb_proba)) * 100, 1)
-        cb_proba_dict = {
-            str(c): round(float(p) * 100, 1)
-            for c, p in zip(cb_classes, cb_proba)
-        }
+    cb_proba = np.array(cb_model.predict_proba(X_input)[0]).flatten()
+    cb_classes = [str(c) for c in cb_model.classes_]
 
+    cb_proba_dict = {
+        str(c): round(float(p) * 100, 1)
+        for c, p in zip(cb_classes, cb_proba)
+    }
+
+    cb_confidence = cb_proba_dict.get(cb_label, round(float(np.max(cb_proba)) * 100, 1))
+
+    # CatBoost is primary model now
     return {
-        "final_prediction": str(rf_pred),
-        "readiness": rf_confidence,
+        "final_prediction": cb_label,
+        "readiness": cb_confidence,
         "random_forest": {
-            "prediction": str(rf_pred),
+            "prediction": rf_pred,
             "confidence": rf_confidence,
             "probabilities": rf_proba_dict
         },
@@ -244,16 +261,20 @@ def predict():
 
         normalized_data = {
             "release_id": input_data.get("release_id", "Manual Input"),
-            "defect_density": float(input_data["defect_density"]),
-            "test_coverage": float(input_data["test_coverage"]),
-            "spillover_ratio": float(input_data["spillover_ratio"]),
-            "code_churn": float(input_data["code_churn"]),
-            "velocity_variance": float(input_data["velocity_variance"]),
-            "open_critical_bugs": int(float(input_data["open_critical_bugs"])),
-            "regression_pass_rate": float(input_data["regression_pass_rate"]),
-            "sprint_goal_met": int(float(input_data["sprint_goal_met"])),
-            "effort_ratio": float(input_data["effort_ratio"]),
-            "days_since_incident": int(float(input_data["days_since_incident"])),
+
+            "sprint_count": int(float(input_data.get("sprint_count", 3))),
+            "avg_velocity": float(input_data.get("avg_velocity", 30)),
+
+            "defect_density": float(input_data.get("defect_density", 0)),
+            "test_coverage": float(input_data.get("test_coverage", 0)),
+            "spillover_ratio": float(input_data.get("spillover_ratio", 0)),
+            "code_churn": float(input_data.get("code_churn", 0)),
+            "velocity_variance": float(input_data.get("velocity_variance", 0)),
+            "open_critical_bugs": int(float(input_data.get("open_critical_bugs", 0))),
+            "regression_pass_rate": float(input_data.get("regression_pass_rate", 0)),
+            "sprint_goal_met": int(float(input_data.get("sprint_goal_met", 0))),
+            "effort_ratio": float(input_data.get("effort_ratio", 1)),
+            "days_since_incident": int(float(input_data.get("days_since_incident", 0))),
         }
 
         # ML prediction
@@ -382,14 +403,25 @@ def get_releases():
                     "score": rule_score
                 }
 
-                if "ml_prediction" not in item:
-                    item["ml_prediction"] = {
-                        "status": item.get("readiness_label", "At Risk"),
-                        "confidence": item.get("readiness", 0)
+                if "ml_prediction" not in item or not item.get("ml_prediction"):
+                    ml_result = calculate_ml_prediction(item)
+
+                    ml_prediction = {
+                        "status": ml_result["final_prediction"],
+                        "confidence": ml_result["readiness"],
+                        "random_forest": ml_result["random_forest"],
+                        "catboost": ml_result["catboost"]
                     }
+
+                    item["ml_prediction"] = ml_prediction
+
+                    historical_releases.update_one(
+                        {"release_id": item["release_id"]},
+                        {"$set": {"ml_prediction": ml_prediction}}
+                    )
+
             except Exception as inner_error:
                 print(f"Release mapping error for {item.get('release_id')}: {inner_error}")
-
         return jsonify(data)
 
     except Exception as e:
@@ -419,11 +451,14 @@ def get_release_by_id(release_id):
                 "score": rule_score
             }
 
-            if "ml_prediction" not in item:
-                item["ml_prediction"] = {
-                    "status": item.get("readiness_label", "At Risk"),
-                    "confidence": item.get("readiness", 0)
-                }
+            ml_result = calculate_ml_prediction(item)
+
+            item["ml_prediction"] = {
+            "status": ml_result["final_prediction"],
+            "confidence": ml_result["readiness"],
+            "random_forest": ml_result["random_forest"],
+            "catboost": ml_result["catboost"]
+}
         except Exception as inner_error:
             print(f"Single release mapping error for {item.get('release_id')}: {inner_error}")
 
@@ -491,6 +526,8 @@ def add_release():
             "velocity_variance": data["velocity_variance"],
             "effort_ratio": data["effort_ratio"],
             "days_since_incident": data["days_since_incident"],
+            "sprint_count": int(float(data.get("sprint_count", 3))),
+            "avg_velocity": float(data.get("avg_velocity", 30)),
 
             # Main display values
             "readiness_label": ml_result["final_prediction"],
@@ -590,6 +627,8 @@ def update_release(release_id):
             "velocity_variance": data["velocity_variance"],
             "effort_ratio": data["effort_ratio"],
             "days_since_incident": data["days_since_incident"],
+            "sprint_count": int(float(data.get("sprint_count", 3))),
+            "avg_velocity": float(data.get("avg_velocity", 30)),
 
             # Main display values
             "readiness_label": ml_result["final_prediction"],
@@ -638,20 +677,6 @@ def update_release(release_id):
 @app.route("/api/sprints", methods=["GET"])
 def get_sprints():
     try:
-        sprint_data = list(sprints.find({}, {"_id": 0}))
-
-        return jsonify({
-            "success": True,
-            "data": sprint_data
-        }), 200
-
-    except Exception as e:
-        print("Get sprints error:", str(e))
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-    try:
         release_id = request.args.get("release_id")
 
         query = {}
@@ -659,9 +684,9 @@ def get_sprints():
             query["release_id"] = release_id
 
         sprint_data = list(
-            db.sprints.find(query, {"_id": 0}).sort([
+            sprints.find(query, {"_id": 0}).sort([
                 ("release_target_date", -1),
-                ("sprint_order", -1)
+                ("sprint_order", 1)
             ])
         )
 
@@ -677,7 +702,6 @@ def get_sprints():
             "error": str(e)
         }), 500
 
-
 @app.route("/api/dashboard", methods=["GET"])
 def get_dashboard():
     try:
@@ -687,13 +711,20 @@ def get_dashboard():
         with open("models/results.json") as f:
             results = json.load(f)
 
-        rf_f1 = results["random_forest"]["metrics"]["cv_f1"]
-        rf_importance = results["random_forest"]["feature_importance"]
+        # CatBoost is now primary model
+        cb_metrics = results.get("catboost", {}).get("metrics", {})
+        cb_f1 = float(cb_metrics.get("cv_mean_f1", cb_metrics.get("cv_f1", 0)))
+
+        cb_importance = results.get("catboost", {}).get("feature_importance", {})
+        rf_importance = results.get("random_forest", {}).get("feature_importance", {})
+
+        # Use CatBoost importance first, fallback to RF if needed
+        importance_source = cb_importance if cb_importance else rf_importance
 
         top_features = sorted(
             [
-                {"name": key, "score": round(value * 100, 1)}
-                for key, value in rf_importance.items()
+                {"name": key, "score": round(float(value) * 100, 1)}
+                for key, value in importance_source.items()
             ],
             key=lambda x: x["score"],
             reverse=True
@@ -708,8 +739,8 @@ def get_dashboard():
                     "readiness_score": 0,
                     "readiness_delta": 0,
                     "open_critical_bugs": 0,
-                    "ml_model_accuracy": round(rf_f1 * 100),
-                    "model_subtitle": f"Random Forest F1: {rf_f1:.2f}"
+                    "ml_model_accuracy": round(cb_f1 * 100),
+                    "model_subtitle": f"CatBoost CV F1: {cb_f1:.2f}"
                 },
                 "readiness_trend": [],
                 "velocity_trend": [],
@@ -728,7 +759,11 @@ def get_dashboard():
         previous_release = release_rows[1] if len(release_rows) > 1 else None
 
         latest_readiness = int(latest_release.get("readiness", 0))
-        previous_readiness = int(previous_release.get("readiness", 0)) if previous_release else latest_readiness
+        previous_readiness = (
+            int(previous_release.get("readiness", 0))
+            if previous_release
+            else latest_readiness
+        )
         readiness_delta = latest_readiness - previous_readiness
 
         summary = {
@@ -737,8 +772,8 @@ def get_dashboard():
             "readiness_score": latest_readiness,
             "readiness_delta": readiness_delta,
             "open_critical_bugs": latest_release.get("open_critical_bugs", 0),
-            "ml_model_accuracy": round(rf_f1 * 100),
-            "model_subtitle": f"Random Forest F1: {rf_f1:.2f}"
+            "ml_model_accuracy": round(cb_f1 * 100),
+            "model_subtitle": f"CatBoost CV F1: {cb_f1:.2f}"
         }
 
         readiness_trend = []
@@ -795,12 +830,12 @@ def get_dashboard():
 
             if "min" in rule and current_value < rule["min"]:
                 blocking_factors.append(
-                    f"{feature.replace('_', ' ').title()} is low ({current_value}) — required {rule['label']}"
+                    f"{feature.replace('_', ' ').title()} is low ({current_value}) — required {rule.get('label', rule['min'])}"
                 )
 
             if "max" in rule and current_value > rule["max"]:
                 blocking_factors.append(
-                    f"{feature.replace('_', ' ').title()} is high ({current_value}) — required {rule['label']}"
+                    f"{feature.replace('_', ' ').title()} is high ({current_value}) — required {rule.get('label', rule['max'])}"
                 )
 
         blocking_factors = blocking_factors[:5]
@@ -821,112 +856,7 @@ def get_dashboard():
             "success": False,
             "error": str(e)
         }), 500
-    try:
-        release_rows = list(historical_releases.find({}, {"_id": 0}))
-        sprint_rows = list(sprints.find({}, {"_id": 0}))
 
-        with open("models/results.json") as f:
-            results = json.load(f)
-
-        rf_f1 = results["random_forest"]["metrics"]["cv_f1"]
-
-        if not release_rows:
-            return jsonify({
-                "success": True,
-                "summary": {
-                    "current_release": "N/A",
-                    "target_date": "",
-                    "readiness_score": 0,
-                    "readiness_delta": 0,
-                    "open_critical_bugs": 0,
-                    "ml_model_accuracy": round(rf_f1 * 100),
-                    "model_subtitle": f"Random Forest F1: {rf_f1:.2f}"
-                },
-                "readiness_trend": [],
-                "velocity_trend": [],
-                "recent_releases": []
-            }), 200
-
-        # sort releases by target_date descending
-        release_rows = sorted(
-            release_rows,
-            key=lambda x: x.get("target_date", ""),
-            reverse=True
-        )
-
-        latest_release = release_rows[0]
-        previous_release = release_rows[1] if len(release_rows) > 1 else None
-
-        latest_readiness = int(latest_release.get("readiness", 0))
-        previous_readiness = int(previous_release.get("readiness", 0)) if previous_release else latest_readiness
-        readiness_delta = latest_readiness - previous_readiness
-
-        # latest release summary
-        summary = {
-            "current_release": latest_release.get("release_id", "N/A"),
-            "target_date": latest_release.get("target_date", ""),
-            "readiness_score": latest_readiness,
-            "readiness_delta": readiness_delta,
-            "open_critical_bugs": latest_release.get("open_critical_bugs", 0),
-            "ml_model_accuracy": round(rf_f1 * 100),
-            "model_subtitle": f"Random Forest F1: {rf_f1:.2f}"
-        }
-
-        # last 4 releases for readiness chart
-        readiness_trend = []
-        for row in reversed(release_rows[:4]):
-            readiness_trend.append({
-                "name": row.get("release_id"),
-                "score": int(row.get("readiness", 0)),
-                "status": row.get("readiness_label", "At Risk")
-            })
-
-        # latest release sprints for velocity trend
-        latest_release_id = latest_release.get("release_id")
-        latest_release_sprints = [
-            row for row in sprint_rows
-            if row.get("release_id") == latest_release_id
-        ]
-
-        latest_release_sprints = sorted(
-            latest_release_sprints,
-            key=lambda x: x.get("sprint_order", 0)
-        )
-
-        velocity_trend = [
-            {
-                "name": row.get("sprint_name"),
-                "velocity": int(row.get("velocity", 0))
-            }
-            for row in latest_release_sprints
-        ]
-
-        # recent releases table
-        recent_releases = []
-        for row in release_rows[:4]:
-            recent_releases.append({
-                "id": row.get("release_id"),
-                "status": row.get("readiness_label", "At Risk"),
-                "date": row.get("target_date", ""),
-                "readiness": int(row.get("readiness", 0)),
-                "coverage": float(row.get("test_coverage", 0)),
-                "bugs": int(row.get("open_critical_bugs", 0))
-            })
-
-        return jsonify({
-            "success": True,
-            "summary": summary,
-            "readiness_trend": readiness_trend,
-            "velocity_trend": velocity_trend,
-            "recent_releases": recent_releases
-        }), 200
-
-    except Exception as e:
-        print("Get dashboard error:", str(e))
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
 
 @app.route("/api/quality", methods=["GET"])
 def get_quality():
@@ -1053,7 +983,7 @@ def get_feature_impact():
         with open("models/results.json") as f:
             results = json.load(f)
 
-        importance = results["random_forest"]["feature_importance"]
+        importance = results["catboost"]["feature_importance"]
         thresholds = results["thresholds"]
 
         impact_data = []
@@ -1105,11 +1035,44 @@ def get_model_evaluation():
             reverse=True
         )
 
-        rf_metrics = results.get("random_forest", {}).get("metrics", {})
-        cb_metrics = results.get("catboost", {}).get("metrics", {})
+        dataset = results.get("dataset", {})
+        model_comparison = results.get("model_comparison", {})
 
-        rf_cm = results.get("random_forest", {}).get("confusion_matrix", [])
-        cb_cm = results.get("catboost", {}).get("confusion_matrix", [])
+        rf_data = results.get("random_forest", {})
+        cb_data = results.get("catboost", {})
+
+        rf_metrics = rf_data.get("metrics", {})
+        cb_metrics = cb_data.get("metrics", {})
+
+        rf_cm = rf_data.get("confusion_matrix", [])
+        cb_cm = cb_data.get("confusion_matrix", [])
+
+        rf_classification_report = rf_data.get("classification_report", {})
+        cb_classification_report = cb_data.get("classification_report", {})
+
+        def safe_float(value, default=0):
+            try:
+                if value is None or value == "—":
+                    return default
+                return float(value)
+            except Exception:
+                return default
+
+        def percent(value):
+            return round(safe_float(value) * 100, 1)
+
+        def metric_value(metrics, new_key, old_key=None, default=0):
+            if new_key in metrics:
+                return metrics.get(new_key, default)
+            if old_key and old_key in metrics:
+                return metrics.get(old_key, default)
+            return default
+
+        rf_cv_mean = metric_value(rf_metrics, "cv_mean_f1", "cv_f1", 0)
+        rf_cv_std = metric_value(rf_metrics, "cv_std_f1", None, 0)
+
+        cb_cv_mean = metric_value(cb_metrics, "cv_mean_f1", "cv_f1", 0)
+        cb_cv_std = metric_value(cb_metrics, "cv_std_f1", None, 0)
 
         baseline_metrics = {
             "accuracy": 67.5,
@@ -1119,51 +1082,90 @@ def get_model_evaluation():
             "cv_f1": None
         }
 
-        # Keep RF as primary model for dissertation consistency
-        winner = "Random Forest"
+        better_performer = model_comparison.get(
+            "better_performer_by_cv_f1",
+            "Random Forest" if safe_float(rf_cv_mean) >= safe_float(cb_cv_mean) else "CatBoost"
+        )
 
-        # Top cards -> CV-F1 based comparison
+        # Keep RF as primary model visually, but show actual better performer separately
+        primary_model = "CatBoost"
+
+        if not model_comparison:
+            if better_performer == "CatBoost":
+                selection_note = (
+                    "CatBoost achieved a higher cross-validation weighted F1-score, "
+                    "indicating stronger predictive performance. However, Random Forest is retained "
+                    "as the primary explainable model for the current small numerical dataset, while "
+                    "CatBoost is retained as the advanced comparison and future-ready model."
+                )
+            else:
+                selection_note = (
+                    "Random Forest achieved equal or higher cross-validation weighted F1-score. "
+                    "It is retained as the primary model because it is stable for small structured numerical datasets, "
+                    "requires minimal preprocessing, and provides interpretable feature importance."
+                )
+
+            model_comparison = {
+                "better_performer_by_cv_f1": better_performer,
+                "selection_note": selection_note
+            }
+
         top_metrics = {
-            "rf_cv_f1_percent": round(float(rf_metrics.get("cv_f1", 0)) * 100, 1),
-            "rf_cv_f1": round(float(rf_metrics.get("cv_f1", 0)), 2),
-            "cb_cv_f1_percent": round(float(cb_metrics.get("cv_f1", 0)) * 100, 1),
-            "cb_cv_f1": round(float(cb_metrics.get("cv_f1", 0)), 2),
+            "rf_cv_f1_percent": percent(rf_cv_mean),
+            "rf_cv_f1": round(safe_float(rf_cv_mean), 3),
+            "rf_cv_std_f1": round(safe_float(rf_cv_std), 3),
+            "rf_cv_std_f1_percent": percent(rf_cv_std),
+
+            "cb_cv_f1_percent": percent(cb_cv_mean),
+            "cb_cv_f1": round(safe_float(cb_cv_mean), 3),
+            "cb_cv_std_f1": round(safe_float(cb_cv_std), 3),
+            "cb_cv_std_f1_percent": percent(cb_cv_std),
+
             "baseline_accuracy": baseline_metrics["accuracy"],
             "baseline_f1": baseline_metrics["f1"]
         }
 
-        # Lower cards -> clearly show test metrics
         model_cards = [
             {
                 "name": "Random Forest",
-                "badge": "Primary Model",
-                "winner": winner == "Random Forest",
+                "badge": None,
+                "winner": False,
                 "metrics": {
-                    "test_accuracy": f"{round(float(rf_metrics.get('accuracy', 0)) * 100, 1)}%",
-                    "test_f1": f"{round(float(rf_metrics.get('f1', 0)), 2)}",
-                    "precision": f"{round(float(rf_metrics.get('precision', 0)), 2)}",
-                    "recall": f"{round(float(rf_metrics.get('recall', 0)), 2)}",
-                    "cv_f1": f"{round(float(rf_metrics.get('cv_f1', 0)), 2)}"
+                    "test_accuracy": f"{percent(rf_metrics.get('accuracy', 0))}%",
+                    "test_f1": f"{round(safe_float(rf_metrics.get('f1', 0)), 3)}",
+                    "precision": f"{round(safe_float(rf_metrics.get('precision', 0)), 3)}",
+                    "recall": f"{round(safe_float(rf_metrics.get('recall', 0)), 3)}",
+                    "cv_f1": f"{round(safe_float(rf_cv_mean), 3)}",
+                    "cv_mean_f1": f"{round(safe_float(rf_cv_mean), 3)}",
+                    "cv_std_f1": f"{round(safe_float(rf_cv_std), 3)}",
+                    "training_time_seconds": rf_metrics.get("training_time_seconds", "—"),
+                    "prediction_time_seconds": rf_metrics.get("prediction_time_seconds", "—")
                 },
                 "details": [
                     "100 trees · Bootstrap sampling",
-                    "Best for small datasets"
+                    "Stable for small structured datasets",
+                    "Interpretable feature importance"
                 ]
             },
             {
                 "name": "CatBoost",
-                "badge": None,
-                "winner": False,
+                "badge": "Primary Model",
+                "winner": True,
                 "metrics": {
-                    "test_accuracy": f"{round(float(cb_metrics.get('accuracy', 0)) * 100, 1)}%",
-                    "test_f1": f"{round(float(cb_metrics.get('f1', 0)), 2)}",
-                    "precision": f"{round(float(cb_metrics.get('precision', 0)), 2)}",
-                    "recall": f"{round(float(cb_metrics.get('recall', 0)), 2)}",
-                    "cv_f1": f"{round(float(cb_metrics.get('cv_f1', 0)), 2)}"
+                    "test_accuracy": f"{percent(cb_metrics.get('accuracy', 0))}%",
+                    "test_f1": f"{round(safe_float(cb_metrics.get('f1', 0)), 3)}",
+                    "precision": f"{round(safe_float(cb_metrics.get('precision', 0)), 3)}",
+                    "recall": f"{round(safe_float(cb_metrics.get('recall', 0)), 3)}",
+                    "cv_f1": f"{round(safe_float(cb_cv_mean), 3)}",
+                    "cv_mean_f1": f"{round(safe_float(cb_cv_mean), 3)}",
+                    "cv_std_f1": f"{round(safe_float(cb_cv_std), 3)}",
+                    "training_time_seconds": cb_metrics.get("training_time_seconds", "—"),
+                    "prediction_time_seconds": cb_metrics.get("prediction_time_seconds", "—")
                 },
                 "details": [
                     "100 iterations · Sequential boosting",
-                    "Native categorical support"
+                    "Strong tabular-data performance",
+                    "Future-ready for categorical features"
                 ]
             },
             {
@@ -1173,46 +1175,57 @@ def get_model_evaluation():
                 "metrics": {
                     "test_accuracy": f"{baseline_metrics['accuracy']}%",
                     "test_f1": f"{baseline_metrics['f1']}",
-                    "precision": "—",
-                    "recall": "—",
-                    "cv_f1": "—"
+                    "precision": f"{baseline_metrics['precision'] / 100:.2f}",
+                    "recall": f"{baseline_metrics['recall'] / 100:.2f}",
+                    "cv_f1": "—",
+                    "cv_mean_f1": "—",
+                    "cv_std_f1": "—",
+                    "training_time_seconds": "—",
+                    "prediction_time_seconds": "—"
                 },
                 "details": [
                     "Fixed thresholds · No learning",
-                    "Manual checklist approach"
+                    "Manual checklist approach",
+                    "Used as baseline benchmark"
                 ]
             }
         ]
 
-        # Performance chart -> test metrics only
         comp_chart = [
             {
                 "metric": "Test Accuracy",
-                "Random Forest": round(float(rf_metrics.get("accuracy", 0)) * 100, 1),
-                "CatBoost": round(float(cb_metrics.get("accuracy", 0)) * 100, 1),
+                "Random Forest": percent(rf_metrics.get("accuracy", 0)),
+                "CatBoost": percent(cb_metrics.get("accuracy", 0)),
                 "Rule-Based": baseline_metrics["accuracy"]
             },
             {
                 "metric": "Test F1",
-                "Random Forest": round(float(rf_metrics.get("f1", 0)) * 100, 1),
-                "CatBoost": round(float(cb_metrics.get("f1", 0)) * 100, 1),
-                "Rule-Based": baseline_metrics["f1"] * 100
+                "Random Forest": percent(rf_metrics.get("f1", 0)),
+                "CatBoost": percent(cb_metrics.get("f1", 0)),
+                "Rule-Based": round(baseline_metrics["f1"] * 100, 1)
             },
             {
                 "metric": "Precision",
-                "Random Forest": round(float(rf_metrics.get("precision", 0)) * 100, 1),
-                "CatBoost": round(float(cb_metrics.get("precision", 0)) * 100, 1),
+                "Random Forest": percent(rf_metrics.get("precision", 0)),
+                "CatBoost": percent(cb_metrics.get("precision", 0)),
                 "Rule-Based": baseline_metrics["precision"]
             },
             {
                 "metric": "Recall",
-                "Random Forest": round(float(rf_metrics.get("recall", 0)) * 100, 1),
-                "CatBoost": round(float(cb_metrics.get("recall", 0)) * 100, 1),
+                "Random Forest": percent(rf_metrics.get("recall", 0)),
+                "CatBoost": percent(cb_metrics.get("recall", 0)),
                 "Rule-Based": baseline_metrics["recall"]
+            },
+            {
+                "metric": "CV F1",
+                "Random Forest": percent(rf_cv_mean),
+                "CatBoost": percent(cb_cv_mean),
+                "Rule-Based": round(baseline_metrics["f1"] * 100, 1)
             }
         ]
 
         prediction_history = []
+
         for row in release_rows[:8]:
             actual = row.get("readiness_label", "At Risk")
 
@@ -1221,6 +1234,7 @@ def get_model_evaluation():
                 .get("random_forest", {})
                 .get("prediction")
             )
+
             cb_pred = (
                 row.get("ml_prediction", {})
                 .get("catboost", {})
@@ -1229,13 +1243,14 @@ def get_model_evaluation():
 
             if not isinstance(rf_pred, str):
                 rf_pred = actual
+
             if not isinstance(cb_pred, str):
                 cb_pred = actual
 
             rule_status, _ = get_rule_based_status(row)
 
             prediction_history.append({
-                "release": row.get("release_id"),
+                "release": row.get("release_id", "N/A"),
                 "rf": rf_pred,
                 "cb": cb_pred,
                 "rb": rule_status,
@@ -1246,11 +1261,15 @@ def get_model_evaluation():
 
         return jsonify({
             "success": True,
+            "dataset": dataset,
+            "model_comparison": model_comparison,
             "top_metrics": top_metrics,
             "model_cards": model_cards,
             "comparison_chart": comp_chart,
             "rf_confusion": rf_cm,
             "cb_confusion": cb_cm,
+            "rf_classification_report": rf_classification_report,
+            "cb_classification_report": cb_classification_report,
             "prediction_history": prediction_history
         }), 200
 
@@ -1260,6 +1279,7 @@ def get_model_evaluation():
             "success": False,
             "error": str(e)
         }), 500
+
 
 
 if __name__ == "__main__":

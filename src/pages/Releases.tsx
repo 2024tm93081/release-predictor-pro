@@ -8,6 +8,7 @@ interface Release {
   id: string;
   targetDate: string;
   testCoverage: number;
+  readinessScore: number;
   defectDensity: number;
   spilloverRatio: number;
   codeChurn: number;
@@ -89,6 +90,7 @@ function mapBackendRelease(item: BackendRelease): Release {
   return {
     id: item.release_id,
     targetDate: formatDate(item.target_date),
+    readinessScore: Number(item.readiness ?? 0),
     testCoverage: Number(item.test_coverage ?? 0),
     defectDensity: Number(item.defect_density ?? 0),
     spilloverRatio: Number(item.spillover_ratio ?? 0),
@@ -607,13 +609,14 @@ export default function Releases() {
       {!loading && !error && (
         <div className="gradient-card border border-border rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1750px] text-sm">
+            <table className="w-full min-w-[1850px] text-sm">
               <thead className="bg-secondary/60 border-b border-border">
                 <tr className="text-left">
                   <th className="px-4 py-3 font-medium text-foreground">Release ID</th>
                   <th className="px-4 py-3 font-medium text-foreground">Date</th>
                   <th className="px-4 py-3 font-medium text-foreground">ML Prediction</th>
                   <th className="px-4 py-3 font-medium text-foreground">ML Confidence</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Readiness Score</th>
                   <th className="px-4 py-3 font-medium text-foreground">Rule-Based</th>
                   <th className="px-4 py-3 font-medium text-foreground">Rule Score</th>
                   <th className="px-4 py-3 font-medium text-foreground">Coverage</th>
@@ -644,6 +647,7 @@ export default function Releases() {
                       <StatusBadge status={r.mlStatus} />
                     </td>
                     <td className="px-4 py-3 font-mono text-foreground">{r.mlConfidence}%</td>
+                    <td className="px-4 py-3 font-mono text-foreground">{r.readinessScore}% </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={r.ruleStatus} />
                     </td>

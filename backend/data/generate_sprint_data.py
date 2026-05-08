@@ -2,6 +2,7 @@ import random
 import sys
 import os
 from datetime import datetime, timedelta
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db import historical_releases, sprints
@@ -9,7 +10,11 @@ from db import historical_releases, sprints
 random.seed(42)
 
 
-def derive_sprint_status(completed_points: int, planned_points: int, spillover_ratio: float) -> str:
+# =========================
+# STATUS LOGIC
+# =========================
+
+def derive_sprint_status(completed_points, planned_points, spillover_ratio):
     completion_rate = (completed_points / planned_points) * 100 if planned_points > 0 else 0
 
     if completion_rate >= 90 and spillover_ratio <= 10:
@@ -19,17 +24,33 @@ def derive_sprint_status(completed_points: int, planned_points: int, spillover_r
     return "Not Ready"
 
 
-def distribute_total_goals(total_goals: int, sprint_count: int):
-    goals = [0] * sprint_count
-    for i in range(min(total_goals, sprint_count)):
-        goals[i] = 1
-    random.shuffle(goals)
+# =========================
+# GOAL DISTRIBUTION
+# =========================
+
+def distribute_total_goals(total_goals, sprint_count):
+    goals = []
+    remaining = total_goals
+
+    for _ in range(sprint_count):
+        if remaining <= 0:
+            goals.append(0)
+        else:
+            g = random.choice([0, 1])
+            goals.append(g)
+            remaining -= g
+
     return goals
 
+
+# =========================
+# MAIN GENERATION LOGIC
+# =========================
 
 def generate_sprints_for_release(release):
     release_id = release["release_id"]
     target_date = datetime.strptime(release["target_date"], "%Y-%m-%d")
+
     sprint_count = int(release.get("sprint_count", 3))
     avg_velocity = float(release.get("avg_velocity", 30))
     release_spillover = float(release.get("spillover_ratio", 10))
@@ -41,44 +62,97 @@ def generate_sprints_for_release(release):
 
     goals_distribution = distribute_total_goals(sprint_goal_met, sprint_count)
 
-    raw_velocities = []
-    for _ in range(sprint_count):
-        variation = random.uniform(-velocity_variance, velocity_variance)
-        velocity = max(15, round(avg_velocity + variation))
-        raw_velocities.append(velocity)
-
-    current_avg = sum(raw_velocities) / sprint_count
-    if current_avg > 0:
-        scale_factor = avg_velocity / current_avg
-        raw_velocities = [max(15, round(v * scale_factor)) for v in raw_velocities]
-
-    spillovers = []
-    for _ in range(sprint_count):
-        variation = random.uniform(-4, 4)
-        sprint_spill = max(0, round(release_spillover + variation, 1))
-        spillovers.append(sprint_spill)
-
-    # last sprint ends exactly on release target date
     for i in range(sprint_count):
         sprint_order = i + 1
         sprint_name = f"Sprint {sprint_order}"
-        completed_points = raw_velocities[i]
+
+        progress_factor = i / sprint_count
+
+        # =========================
+        # VELOCITY PROGRESSION
+        # =========================
 
         if readiness_label == "Ready":
-            planned_points = max(completed_points, completed_points + random.randint(0, 6))
+            velocity = avg_velocity + progress_factor * 5
         elif readiness_label == "At Risk":
-            planned_points = max(completed_points, completed_points + random.randint(4, 12))
+            velocity = avg_velocity
         else:
-            planned_points = max(completed_points, completed_points + random.randint(8, 18))
+            velocity = avg_velocity - progress_factor * 5
 
-        spillover_ratio = spillovers[i]
+        velocity += random.uniform(-velocity_variance, velocity_variance)
+        completed_points = max(15, round(velocity))
+
+        # =========================
+        # LAST SPRINT PRESSURE
+        # =========================
+
+        if i == sprint_count - 1:
+            if readiness_label == "Ready":
+                completed_points += random.randint(2, 5)
+            elif readiness_label == "Not Ready":
+                completed_points -= random.randint(2, 5)
+
+        # =========================
+        # PLANNED POINTS
+        # =========================
+
+        if readiness_label == "Ready":
+            planned_points = completed_points + random.randint(0, 6)
+        elif readiness_label == "At Risk":
+            planned_points = completed_points + random.randint(4, 12)
+        else:
+            planned_points = completed_points + random.randint(8, 18)
+
+        # =========================
+        # SPILLOVER EVOLUTION
+        # =========================
+
+        if readiness_label == "Ready":
+            base_spill = release_spillover * (1 - progress_factor)
+        elif readiness_label == "At Risk":
+            base_spill = release_spillover
+        else:
+            base_spill = release_spillover * (1 + progress_factor)
+
+        spillover_ratio = max(0, round(base_spill + random.uniform(-3, 3), 1))
+
+        # =========================
+        # GOALS
+        # =========================
+
         goals_met = goals_distribution[i]
+
+        # =========================
+        # DATES (2-week sprint)
+        # =========================
 
         days_before_end = (sprint_count - i - 1) * 14
         sprint_end_date = target_date - timedelta(days=days_before_end)
         sprint_start_date = sprint_end_date - timedelta(days=13)
 
-        sprint_status = derive_sprint_status(completed_points, planned_points, spillover_ratio)
+        # =========================
+        # STATUS
+        # =========================
+
+        sprint_status = derive_sprint_status(
+            completed_points,
+            planned_points,
+            spillover_ratio
+        )
+
+        # =========================
+        # ALIGN WITH RELEASE LABEL
+        # =========================
+
+        if readiness_label == "Ready" and sprint_status == "Not Ready":
+            sprint_status = "At Risk"
+
+        if readiness_label == "Not Ready" and sprint_status == "Ready":
+            sprint_status = "At Risk"
+
+        # =========================
+        # RECORD
+        # =========================
 
         sprint_records.append({
             "release_id": release_id,
@@ -99,6 +173,10 @@ def generate_sprints_for_release(release):
 
     return sprint_records
 
+
+# =========================
+# MAIN EXECUTION
+# =========================
 
 def main():
     releases = list(historical_releases.find({}, {"_id": 0}))
@@ -121,12 +199,13 @@ def main():
         print("No sprint records generated.")
         return
 
-    # optional: clear old sprint data first
+    # clear old data
     sprints.delete_many({})
     sprints.insert_many(all_sprint_records)
 
     print(f"✅ Inserted {len(all_sprint_records)} sprint records into sprints")
-    print("Sample:")
+
+    print("\nSample:")
     for row in all_sprint_records[:5]:
         print(row)
 

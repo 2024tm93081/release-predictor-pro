@@ -17,9 +17,10 @@ import {
 type StatusType = "Ready" | "At Risk" | "Not Ready";
 
 const modelOptions = [
-  { label: "🌳 Random Forest (Primary)", value: "Random Forest" },
-  { label: "🚀 CatBoost (Comparison)", value: "CatBoost" },
-  { label: "📋 Rule-Based Baseline", value: "Rule-Based" },
+ 
+  { label: "CatBoost (Primary)", value: "CatBoost" },
+   { label: "Random Forest (Comparison)", value: "Random Forest" },
+  { label: "Rule-Based Baseline", value: "Rule-Based" },
 ];
 
 interface ReleaseOption {
@@ -372,7 +373,10 @@ export default function Predict() {
                   {result.confidence}%
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {result.description}
+                  Model confidence in prediction
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {result.description} — based on feature patterns learned from historical releases
                 </p>
 
                 <div className="mt-4 space-y-2">

@@ -1,5 +1,20 @@
 {
+  "dataset": {
+    "total_records": 500,
+    "train_records": 400,
+    "test_records": 100,
+    "test_size": 0.2,
+    "validation_method": "5-Fold Stratified Cross Validation",
+    "primary_metric": "Weighted F1-Score",
+    "label_distribution": {
+      "Not Ready": 212,
+      "At Risk": 206,
+      "Ready": 82
+    }
+  },
   "features": [
+    "sprint_count",
+    "avg_velocity",
     "defect_density",
     "test_coverage",
     "spillover_ratio",
@@ -16,116 +31,210 @@
     "At Risk",
     "Not Ready"
   ],
+  "model_comparison": {
+    "better_performer_by_cv_f1": "CatBoost",
+    "selection_note": "CatBoost achieved a higher cross-validation weighted F1-score, indicating stronger predictive performance. However, Random Forest can still be retained as the primary explainable model for the current small numerical dataset, while CatBoost is retained as the advanced comparison model and future-ready model for categorical features."
+  },
   "random_forest": {
+    "model_role": "Primary Explainable Model",
     "metrics": {
-      "accuracy": 1.0,
-      "f1": 1.0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "cv_f1": 0.8621
+      "accuracy": 0.71,
+      "f1": 0.6772,
+      "precision": 0.7148,
+      "recall": 0.71,
+      "cv_mean_f1": 0.6684,
+      "cv_std_f1": 0.0459,
+      "training_time_seconds": 0.2276,
+      "prediction_time_seconds": 0.0613
     },
     "feature_importance": {
-      "defect_density": 0.1074,
-      "test_coverage": 0.1903,
-      "spillover_ratio": 0.1947,
-      "code_churn": 0.1062,
-      "velocity_variance": 0.0592,
-      "open_critical_bugs": 0.0619,
-      "regression_pass_rate": 0.0957,
-      "sprint_goal_met": 0.0302,
-      "effort_ratio": 0.0579,
-      "days_since_incident": 0.0965
+      "sprint_count": 0.0214,
+      "avg_velocity": 0.0648,
+      "defect_density": 0.1131,
+      "test_coverage": 0.1223,
+      "spillover_ratio": 0.0919,
+      "code_churn": 0.076,
+      "velocity_variance": 0.081,
+      "open_critical_bugs": 0.1554,
+      "regression_pass_rate": 0.0898,
+      "sprint_goal_met": 0.0611,
+      "effort_ratio": 0.0599,
+      "days_since_incident": 0.0633
     },
     "confusion_matrix": [
       [
-        3,
-        0,
-        0
+        2,
+        12,
+        2
       ],
       [
-        0,
         1,
-        0
+        34,
+        6
       ],
       [
         0,
-        0,
-        1
+        8,
+        35
       ]
-    ]
+    ],
+    "classification_report": {
+      "Ready": {
+        "precision": 0.6666666666666666,
+        "recall": 0.125,
+        "f1-score": 0.21052631578947367,
+        "support": 16.0
+      },
+      "At Risk": {
+        "precision": 0.6296296296296297,
+        "recall": 0.8292682926829268,
+        "f1-score": 0.7157894736842105,
+        "support": 41.0
+      },
+      "Not Ready": {
+        "precision": 0.813953488372093,
+        "recall": 0.813953488372093,
+        "f1-score": 0.813953488372093,
+        "support": 43.0
+      },
+      "accuracy": 0.71,
+      "macro avg": {
+        "precision": 0.7034165948894632,
+        "recall": 0.5894072603516732,
+        "f1-score": 0.5800897592819257,
+        "support": 100.0
+      },
+      "weighted avg": {
+        "precision": 0.7148148148148148,
+        "recall": 0.71,
+        "f1-score": 0.6771578947368421,
+        "support": 100.0
+      }
+    },
+    "selection_reason": "Selected as the primary model because it is suitable for small structured datasets, requires minimal feature scaling or preprocessing, is robust through ensemble voting, and provides clear feature importance for explainability."
   },
   "catboost": {
+    "model_role": "Advanced Comparison Model",
     "metrics": {
-      "accuracy": 1.0,
-      "f1": 1.0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "cv_f1": 0.9077
+      "accuracy": 0.68,
+      "f1": 0.6778,
+      "precision": 0.6851,
+      "recall": 0.68,
+      "cv_mean_f1": 0.7093,
+      "cv_std_f1": 0.0293,
+      "training_time_seconds": 0.7758,
+      "prediction_time_seconds": 0.0
     },
     "feature_importance": {
-      "defect_density": 0.1813,
-      "test_coverage": 0.2269,
-      "spillover_ratio": 0.1971,
-      "code_churn": 0.061,
-      "velocity_variance": 0.0179,
-      "open_critical_bugs": 0.0634,
-      "regression_pass_rate": 0.0531,
-      "sprint_goal_met": 0.1034,
-      "effort_ratio": 0.0249,
-      "days_since_incident": 0.0709
+      "sprint_count": 0.0359,
+      "avg_velocity": 0.0393,
+      "defect_density": 0.121,
+      "test_coverage": 0.1492,
+      "spillover_ratio": 0.0894,
+      "code_churn": 0.0486,
+      "velocity_variance": 0.0568,
+      "open_critical_bugs": 0.2174,
+      "regression_pass_rate": 0.0951,
+      "sprint_goal_met": 0.0726,
+      "effort_ratio": 0.0433,
+      "days_since_incident": 0.0313
     },
     "confusion_matrix": [
       [
-        3,
-        0,
-        0
-      ],
-      [
-        0,
-        1,
-        0
-      ],
-      [
-        0,
-        0,
+        7,
+        8,
         1
+      ],
+      [
+        4,
+        29,
+        8
+      ],
+      [
+        0,
+        11,
+        32
       ]
-    ]
+    ],
+    "classification_report": {
+      "Ready": {
+        "precision": 0.6363636363636364,
+        "recall": 0.4375,
+        "f1-score": 0.5185185185185185,
+        "support": 16.0
+      },
+      "At Risk": {
+        "precision": 0.6041666666666666,
+        "recall": 0.7073170731707317,
+        "f1-score": 0.651685393258427,
+        "support": 41.0
+      },
+      "Not Ready": {
+        "precision": 0.7804878048780488,
+        "recall": 0.7441860465116279,
+        "f1-score": 0.7619047619047619,
+        "support": 43.0
+      },
+      "accuracy": 0.68,
+      "macro avg": {
+        "precision": 0.6736727026361172,
+        "recall": 0.6296677065607865,
+        "f1-score": 0.6440362245605691,
+        "support": 100.0
+      },
+      "weighted avg": {
+        "precision": 0.6851362712490762,
+        "recall": 0.68,
+        "f1-score": 0.6777730218179656,
+        "support": 100.0
+      }
+    },
+    "selection_reason": "Selected as the comparison model because it uses sequential boosting, can capture complex non-linear patterns, and is future-ready for categorical features such as release type, module name, team name, and sprint category."
   },
   "thresholds": {
+    "sprint_count": {
+      "min": 4.0,
+      "label": ">= 4.0",
+      "good": "high"
+    },
+    "avg_velocity": {
+      "min": 32.23,
+      "label": ">= 32.23",
+      "good": "high"
+    },
     "defect_density": {
-      "max": 1.76,
-      "label": "<= 1.76",
+      "max": 3.88,
+      "label": "<= 3.88",
       "good": "low"
     },
     "test_coverage": {
-      "min": 85.47,
-      "label": ">= 85.47",
+      "min": 75.3,
+      "label": ">= 75.3",
       "good": "high"
     },
     "spillover_ratio": {
-      "max": 10.3,
-      "label": "<= 10.3",
+      "max": 20.77,
+      "label": "<= 20.77",
       "good": "low"
     },
     "code_churn": {
-      "max": 17.8,
-      "label": "<= 17.8",
+      "max": 34.8,
+      "label": "<= 34.8",
       "good": "low"
     },
     "velocity_variance": {
-      "max": 8.88,
-      "label": "<= 8.88",
+      "max": 15.2,
+      "label": "<= 15.2",
       "good": "low"
     },
     "open_critical_bugs": {
-      "max": 2.0,
-      "label": "<= 2.0",
+      "max": 3.0,
+      "label": "<= 3.0",
       "good": "low"
     },
     "regression_pass_rate": {
-      "min": 90.12,
-      "label": ">= 90.12",
+      "min": 76.7,
+      "label": ">= 76.7",
       "good": "high"
     },
     "sprint_goal_met": {
@@ -134,13 +243,13 @@
       "good": "high"
     },
     "effort_ratio": {
-      "max": 1.02,
-      "label": "<= 1.02",
+      "max": 1.21,
+      "label": "<= 1.21",
       "good": "low"
     },
     "days_since_incident": {
-      "min": 40.75,
-      "label": ">= 40.75",
+      "min": 26.0,
+      "label": ">= 26.0",
       "good": "high"
     }
   }
