@@ -22,6 +22,8 @@ interface Release {
   mlConfidence: number;
   ruleStatus: StatusType;
   ruleScore: number;
+  sprintCount: number;
+  avgVelocity: number;
 }
 
 interface BackendRelease {
@@ -34,6 +36,8 @@ interface BackendRelease {
   open_critical_bugs: number;
   regression_pass_rate: number;
   sprint_goal_met: number;
+  sprint_count?: number;
+  avg_velocity?: number;
   velocity_variance: number;
   effort_ratio: number;
   days_since_incident: number;
@@ -62,6 +66,8 @@ const defaultForm = {
   velocityVariance: "",
   effortRatio: "",
   daysSinceIncident: "",
+  sprintCount: "",
+  avgVelocity: "",
 };
 
 function formatDate(dateValue?: string): string {
@@ -105,6 +111,8 @@ function mapBackendRelease(item: BackendRelease): Release {
     mlConfidence: Number(item.ml_prediction?.confidence ?? item.readiness ?? 0),
     ruleStatus: item.rule_based?.status ?? "At Risk",
     ruleScore: Number(item.rule_based?.score ?? 0),
+    sprintCount: Number(item.sprint_count ?? 0),
+    avgVelocity: Number(item.avg_velocity ?? 0),
   };
 }
 
@@ -185,6 +193,8 @@ export default function Releases() {
         velocityVariance: String(item.velocity_variance ?? ""),
         effortRatio: String(item.effort_ratio ?? ""),
         daysSinceIncident: String(item.days_since_incident ?? ""),
+        sprintCount: String(item.sprint_count ?? ""),
+        avgVelocity: String(item.avg_velocity ?? ""),
       });
 
       setEditingId(releaseId);
@@ -212,6 +222,8 @@ export default function Releases() {
           openCriticalBugs: String(existingRelease.openCriticalBugs),
           regressionPassRate: String(existingRelease.regressionPassRate),
           sprintGoalsMet: String(existingRelease.sprintGoalsMet),
+          sprintCount: String(existingRelease.sprintCount),
+          avgVelocity: String(existingRelease.avgVelocity),
           velocityVariance: String(existingRelease.velocityVariance),
           effortRatio: String(existingRelease.effortRatio),
           daysSinceIncident: String(existingRelease.daysSinceIncident),
@@ -243,6 +255,8 @@ export default function Releases() {
         velocity_variance: Number(form.velocityVariance),
         effort_ratio: Number(form.effortRatio),
         days_since_incident: Number(form.daysSinceIncident),
+        sprint_count: Number(form.sprintCount),
+        avg_velocity: Number(form.avgVelocity),
       };
 
       const response = await fetch("http://127.0.0.1:5000/api/releases", {
@@ -288,6 +302,8 @@ export default function Releases() {
         test_coverage: Number(form.testCoverage),
         defect_density: Number(form.defectDensity),
         spillover_ratio: Number(form.spilloverRatio),
+        sprint_count: Number(form.sprintCount),
+        avg_velocity: Number(form.avgVelocity),
         code_churn: Number(form.codeChurn),
         open_critical_bugs: Number(form.openCriticalBugs),
         regression_pass_rate: Number(form.regressionPassRate),
@@ -554,6 +570,36 @@ export default function Releases() {
                 onChange={(e) => setForm({ ...form, daysSinceIncident: e.target.value })}
               />
             </div>
+
+            <div>
+  <label className="text-xs text-muted-foreground mb-1 block">
+    Sprint Count
+  </label>
+  <input
+    type="number"
+    className={inputClass}
+    value={form.sprintCount}
+    onChange={(e) =>
+      setForm({ ...form, sprintCount: e.target.value })
+    }
+  />
+</div>
+
+<div>
+  <label className="text-xs text-muted-foreground mb-1 block">
+    Average Velocity
+  </label>
+  <input
+    type="number"
+    className={inputClass}
+    value={form.avgVelocity}
+    onChange={(e) =>
+      setForm({ ...form, avgVelocity: e.target.value })
+    }
+  />
+</div>
+
+            
           </div>
 
           <div className="flex gap-3 mt-4">
@@ -576,8 +622,11 @@ export default function Releases() {
                 !form.codeChurn ||
                 !form.openCriticalBugs ||
                 !form.regressionPassRate ||
+                !form.sprintGoalsMet ||
                 !form.velocityVariance ||
                 !form.effortRatio ||
+                !form.sprintCount ||
+                !form.avgVelocity ||
                 !form.daysSinceIncident
               }
               className="px-6 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
