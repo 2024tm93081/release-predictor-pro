@@ -495,7 +495,7 @@ results = {
         "selection_note": comparison_summary
     },
     "random_forest": {
-        "model_role": "Primary Explainable Model",
+        "model_role": "Comparison Model",
         "metrics": rf_metrics,
         "feature_importance": rf_importance,
         "confusion_matrix": rf_cm,
@@ -507,7 +507,7 @@ results = {
         )
     },
     "catboost": {
-        "model_role": "Advanced Comparison Model",
+        "model_role": "Primary Model",
         "metrics": cb_metrics,
         "feature_importance": cb_importance,
         "confusion_matrix": cb_cm,

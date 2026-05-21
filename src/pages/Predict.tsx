@@ -103,14 +103,47 @@ export default function Predict() {
         throw new Error(`Failed to fetch releases: ${response.status}`);
       }
 
+
+      const sortReleaseIds = (a: string, b: string) => {
+  const parse = (id: string) => {
+    const match = id.match(/v(\d+)\.(\d+)\.(\d+)_S(\d+)/);
+
+    if (!match) return [0, 0, 0, 0];
+
+    return [
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3]),
+      Number(match[4]),
+    ];
+  };
+
+  const av = parse(a);
+  const bv = parse(b);
+
+  for (let i = 0; i < av.length; i++) {
+    if (av[i] !== bv[i]) {
+      return bv[i] - av[i]; // descending
+    }
+  }
+
+  return 0;
+};
+
+
       const releases = await response.json();
 
-      const mappedOptions: ReleaseOption[] = (releases || []).map((item: any) => ({
-        value: item.release_id,
-        label: item.release_id,
-      }));
+      const mappedOptions: ReleaseOption[] = (releases || [])
+        .map((item: any) => ({
+          value: item.release_id,
+          label: item.release_id,
+        }))
+        .sort((a, b) => sortReleaseIds(a.label, b.label));
 
-      mappedOptions.push({ value: "Manual Input", label: "Manual Input" });
+      mappedOptions.push({
+        value: "Manual Input",
+        label: "Manual Input",
+      });
 
       setReleaseOptions(mappedOptions);
 
